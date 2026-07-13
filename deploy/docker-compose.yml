@@ -1,0 +1,36 @@
+# Środowisko deweloperskie on-premise (idea.md pkt 3.5).
+#
+#   docker compose up postgres      # tylko baza — API uruchamiasz lokalnie (uvicorn)
+#   docker compose up --build       # baza + API w kontenerze
+#
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: whiteboard
+      POSTGRES_PASSWORD: whiteboard
+      POSTGRES_DB: whiteboard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whiteboard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ../server
+    environment:
+      # Wewnątrz sieci compose baza jest pod hostem "postgres", nie "localhost".
+      DATABASE_URL: postgresql+psycopg://whiteboard:whiteboard@postgres:5432/whiteboard
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
