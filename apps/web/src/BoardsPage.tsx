@@ -119,9 +119,10 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
             </div>
             <div className="row">
               <button
+                disabled={!b.room_id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpen(b.id);
+                  if (b.room_id) onOpen(b.room_id);
                 }}
               >
                 Otwórz

@@ -1,19 +1,20 @@
 import json
 import os
 import re
+import secrets
 import uuid
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..access import require_access
 from ..convert import ConvertError, convert_file
 from ..deps import get_current_user, get_db
 from ..devformat import build_dev, parse_dev
-from ..models import AccessLevel, Board, BoardPermission, BoardVersion, User
+from ..models import AccessLevel, Board, BoardPermission, BoardVersion, Room, User
 from ..schemas import (
     BoardCreate,
     BoardRead,
@@ -33,6 +34,19 @@ def _get_or_404(db: Session, board_id: uuid.UUID) -> Board:
     board = db.get(Board, board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="Tablica nie istnieje")
+    return board
+
+
+def _create_board(db: Session, title: str, document: dict, owner: User) -> Board:
+    """Tworzy tablicę z prywatnym sekretem (32 hex) i publicznym pokojem (Room, id w URL)."""
+    board = Board(
+        title=title, document=document, owner_id=owner.id, secret=secrets.token_hex(16)
+    )
+    db.add(board)
+    db.flush()  # potrzebne board.id do utworzenia pokoju
+    db.add(Room(id=secrets.token_urlsafe(9), board_id=board.id, owner_id=owner.id))
+    db.commit()
+    db.refresh(board)
     return board
 
 
@@ -68,7 +82,7 @@ def list_boards(db: Session = Depends(get_db), user: User = Depends(get_current_
             .distinct()
             .order_by(Board.updated_at.desc())
         )
-    return db.scalars(stmt).all()
+    return db.scalars(stmt.options(selectinload(Board.room))).all()
 
 
 @router.post("", response_model=BoardRead, status_code=201)
@@ -77,11 +91,7 @@ def create_board(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    board = Board(title=payload.title, document=payload.document, owner_id=user.id)
-    db.add(board)
-    db.commit()
-    db.refresh(board)
-    return board
+    return _create_board(db, payload.title, payload.document, user)
 
 
 @router.post("/import", response_model=BoardRead, status_code=201)
@@ -95,11 +105,7 @@ def import_dev(
         document, title = parse_dev(payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    board = Board(title=title or "Import .devbrd", document=document, owner_id=user.id)
-    db.add(board)
-    db.commit()
-    db.refresh(board)
-    return board
+    return _create_board(db, title or "Import .devbrd", document, user)
 
 
 @router.post("/import-file", response_model=BoardRead, status_code=201)
@@ -121,11 +127,7 @@ async def import_file(
     except ConvertError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     title = os.path.splitext(os.path.basename(file.filename or ""))[0] or "Import"
-    board = Board(title=title, document=result["document"], owner_id=user.id)
-    db.add(board)
-    db.commit()
-    db.refresh(board)
-    return board
+    return _create_board(db, title, result["document"], user)
 
 
 @router.get("/{board_id}", response_model=BoardRead)

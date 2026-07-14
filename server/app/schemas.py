@@ -55,6 +55,8 @@ class BoardRead(BaseModel):
     title: str
     owner_id: uuid.UUID
     document: dict[str, Any]
+    room_id: str | None = None  # publiczny id pokoju (w URL)
+    secret: str | None = None  # prywatny, tajny 32-znakowy identyfikator tablicy
     created_at: datetime
     updated_at: datetime
 
@@ -67,6 +69,7 @@ class BoardSummary(BaseModel):
     id: uuid.UUID
     title: str
     owner_id: uuid.UUID
+    room_id: str | None = None  # publiczny id pokoju (do nawigacji /room/<id>)
     created_at: datetime
     updated_at: datetime
 

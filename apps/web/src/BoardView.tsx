@@ -39,7 +39,7 @@ function fitViewBox(doc: UniDoc, w: number, h: number): ViewBox {
 
 type Mode = { kind: "none" } | { kind: "pan" } | { kind: "move"; id: string };
 
-export function BoardView({ boardId, onClose }: { boardId: string; onClose: () => void }) {
+export function BoardView({ roomId, onClose }: { roomId: string; onClose: () => void }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [doc, setDoc] = useState<UniDoc>(EMPTY);
   const [view, setView] = useState<ViewBox | null>(null);
@@ -55,14 +55,14 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
 
   useEffect(() => {
     api
-      .getBoard(boardId)
+      .getRoom(roomId)
       .then((b) => {
         setBoard(b);
         setDoc(asDoc(b));
         setError(null);
       })
       .catch((e) => setError((e as Error).message));
-  }, [boardId]);
+  }, [roomId]);
 
   // Jednorazowa inicjalizacja viewportu po załadowaniu tablicy i zmierzeniu obszaru.
   useEffect(() => {
@@ -227,8 +227,9 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
   }
 
   async function save() {
+    if (!board) return;
     try {
-      const updated = await api.updateBoard(boardId, {
+      const updated = await api.updateBoard(board.id, {
         document: doc as unknown as Record<string, unknown>,
       });
       setBoard(updated);
@@ -248,7 +249,7 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
   }
 
   function exportBoard() {
-    const text = exportDev(doc, { id: boardId, title: board?.title });
+    const text = exportDev(doc, { id: board?.id, title: board?.title });
     downloadText(safeFilename(board?.title ?? "tablica", "devbrd"), text);
     setInfo(`Wyeksportowano ${doc.nodes.length} obiektów do formatu .devbrd.`);
   }
@@ -284,7 +285,12 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
             ← Wstecz
           </button>
           <strong>{board?.title ?? "…"}</strong>
-          <button className="ghost" onClick={copyLink} title="Skopiuj link do tej tablicy">
+          {board?.secret && (
+            <span className="badge" title={`Prywatne ID tablicy (32 znaki): ${board.secret}`}>
+              🔒 {board.secret.slice(0, 8)}…
+            </span>
+          )}
+          <button className="ghost" onClick={copyLink} title="Skopiuj link do pokoju tej tablicy">
             Kopiuj link
           </button>
           {dirty && (

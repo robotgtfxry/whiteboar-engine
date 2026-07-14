@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import Base, SessionLocal, engine
-from .routers import auth, boards, convert, permissions, users
-from .seed import seed_admin
+from .routers import auth, boards, convert, permissions, rooms, users
+from .seed import backfill_boards, seed_admin
 
 
 @asynccontextmanager
@@ -16,6 +16,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_admin(db)
+        backfill_boards(db)  # dorób sekret + pokój istniejącym tablicom
     finally:
         db.close()
     yield
@@ -36,6 +37,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(boards.router)
 app.include_router(convert.router)
+app.include_router(rooms.router)
 app.include_router(permissions.router)
 
 

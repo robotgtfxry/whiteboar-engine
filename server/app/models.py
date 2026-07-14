@@ -50,6 +50,9 @@ class Board(Base):
     # Treść tablicy jako dowolny JSON (docelowo uniwersalny model z packages/core).
     # Na tym etapie serwer nie waliduje struktury — patrz idea.md pkt 5.1 (wersjonowanie schematu).
     document: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    # Prywatny, tajny identyfikator tablicy (32 znaki hex) — NIE pojawia się w URL.
+    # Publiczny/współdzielony jest id pokoju (Room); tablica żyje w pokoju.
+    secret: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -60,6 +63,14 @@ class Board(Base):
     permissions: Mapped[list["BoardPermission"]] = relationship(
         back_populates="board", cascade="all, delete-orphan"
     )
+    room: Mapped["Room | None"] = relationship(
+        back_populates="board", uselist=False, cascade="all, delete-orphan"
+    )
+
+    @property
+    def room_id(self) -> str | None:
+        """Publiczny id pokoju (w URL). None gdy tablica nie ma jeszcze pokoju."""
+        return self.room.id if self.room else None
 
 
 class BoardPermission(Base):
@@ -105,3 +116,25 @@ class BoardVersion(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Room(Base):
+    """Pokój (sesja) — publiczny, współdzielony uchwyt tablicy. To jego id trafia do URL.
+
+    Tablica (Board) ma prywatny sekret; pokój jest tym, co udostępniasz linkiem. 1 pokój → 1 tablica.
+    """
+
+    __tablename__ = "rooms"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # publiczny id pokoju (w URL)
+    board_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("boards.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    board: Mapped["Board"] = relationship(back_populates="room")

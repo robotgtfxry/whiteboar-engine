@@ -1,8 +1,10 @@
+import secrets
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import User
+from .models import Board, Room, User
 from .security import hash_password
 
 
@@ -24,3 +26,17 @@ def seed_admin(db: Session) -> User:
         admin.hashed_password = hash_password(settings.admin_password)
         db.commit()
     return admin
+
+
+def backfill_boards(db: Session) -> None:
+    """Dorabia prywatny sekret i publiczny pokój tablicom sprzed tej funkcji (idempotentnie)."""
+    changed = False
+    for board in db.scalars(select(Board)).all():
+        if not board.secret:
+            board.secret = secrets.token_hex(16)
+            changed = True
+        if db.scalar(select(Room).where(Room.board_id == board.id)) is None:
+            db.add(Room(id=secrets.token_urlsafe(9), board_id=board.id, owner_id=board.owner_id))
+            changed = True
+    if changed:
+        db.commit()

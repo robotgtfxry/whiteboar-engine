@@ -55,12 +55,14 @@ export interface BoardSummary {
   id: UUID;
   title: string;
   owner_id: UUID;
+  room_id: string | null; // publiczny id pokoju (to trafia do URL /room/<id>)
   created_at: string;
   updated_at: string;
 }
 
 export interface Board extends BoardSummary {
   document: Record<string, unknown>;
+  secret: string | null; // prywatny, tajny 32-znakowy identyfikator tablicy (nie w URL)
 }
 
 export interface Permission {
@@ -171,6 +173,8 @@ export const api = {
   // Boards
   listBoards: () => req<BoardSummary[]>("/boards"),
   getBoard: (id: UUID) => req<Board>(`/boards/${id}`),
+  // Otwarcie po publicznym id pokoju (to jest w URL); zwraca tablicę pokoju.
+  getRoom: (roomId: string) => req<Board>(`/rooms/${roomId}`),
   createBoard: (body: { title: string; document?: Record<string, unknown> }) =>
     req<Board>("/boards", { method: "POST", body: JSON.stringify(body) }),
   updateBoard: (id: UUID, body: { title?: string; document?: Record<string, unknown> }) =>

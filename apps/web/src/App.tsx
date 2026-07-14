@@ -9,19 +9,18 @@ import { UsersPage } from "./UsersPage";
 
 type Tab = "boards" | "users" | "convert";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// URL /<id> → otwarta tablica; / → panel. Trasa jest publiczna, ale wymaga auth (patrz niżej).
-function boardIdFromPath(): string | null {
-  const seg = window.location.pathname.replace(/^\/+/, "").split("/")[0];
-  return UUID_RE.test(seg) ? seg : null;
+// URL /room/<id> → otwarty pokój (publiczne id pokoju; tablica ma prywatny sekret). / → panel.
+// Trasa jest publiczna (link można komuś wysłać), ale wymaga auth (patrz niżej).
+function roomIdFromPath(): string | null {
+  const parts = window.location.pathname.replace(/^\/+/, "").split("/");
+  return parts[0] === "room" && parts[1] ? parts[1] : null;
 }
 
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("boards");
-  const [openBoardId, setOpenBoardId] = useState<string | null>(boardIdFromPath());
+  const [openRoomId, setOpenRoomId] = useState<string | null>(roomIdFromPath());
 
   useEffect(() => {
     if (!hasToken()) {
@@ -37,25 +36,25 @@ export function App() {
 
   // Synchronizacja z przyciskami wstecz/naprzód przeglądarki.
   useEffect(() => {
-    const onPop = () => setOpenBoardId(boardIdFromPath());
+    const onPop = () => setOpenRoomId(roomIdFromPath());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  function openBoard(id: string) {
-    if (boardIdFromPath() !== id) window.history.pushState(null, "", `/${id}`);
-    setOpenBoardId(id);
+  function openRoom(roomId: string) {
+    if (roomIdFromPath() !== roomId) window.history.pushState(null, "", `/room/${roomId}`);
+    setOpenRoomId(roomId);
   }
 
-  function closeBoard() {
-    if (boardIdFromPath()) window.history.pushState(null, "", "/");
-    setOpenBoardId(null);
+  function closeRoom() {
+    if (roomIdFromPath()) window.history.pushState(null, "", "/");
+    setOpenRoomId(null);
   }
 
   function logout() {
     api.logout();
     setUser(null);
-    closeBoard();
+    closeRoom();
   }
 
   if (loading) return <div className="app">Ładowanie…</div>;
@@ -64,8 +63,8 @@ export function App() {
   // Po zalogowaniu openBoardId z URL-a nadal obowiązuje → użytkownik trafia wprost na tablicę.
   if (!user) return <LoginPage onLogin={setUser} />;
 
-  if (openBoardId) {
-    return <BoardView key={openBoardId} boardId={openBoardId} onClose={closeBoard} />;
+  if (openRoomId) {
+    return <BoardView key={openRoomId} roomId={openRoomId} onClose={closeRoom} />;
   }
 
   return (
@@ -95,7 +94,7 @@ export function App() {
         </button>
       </div>
 
-      {tab === "boards" && <BoardsPage onOpen={openBoard} />}
+      {tab === "boards" && <BoardsPage onOpen={openRoom} />}
       {tab === "users" && <UsersPage isAdmin={user.is_admin} />}
       {tab === "convert" && <ConvertPage />}
     </div>
