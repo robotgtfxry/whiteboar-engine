@@ -14,8 +14,15 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@whiteboard/core": ["../../packages/core/src/index.ts"],
+      "@whiteboard/importers": ["../../packages/importers/src/index.ts"],
+      "@whiteboard/api-client": ["../../packages/api-client/src/index.ts"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/*/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

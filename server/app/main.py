@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .database import Base, SessionLocal, engine
-from .routers import auth, boards, permissions, users
+from .routers import auth, boards, convert, permissions, users
 from .seed import seed_admin
 
 
@@ -35,6 +35,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(boards.router)
+app.include_router(convert.router)
 app.include_router(permissions.router)
 
 

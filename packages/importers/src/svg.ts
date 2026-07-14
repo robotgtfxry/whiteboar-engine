@@ -2,7 +2,7 @@
 // Poziom wierności 2: odzyskujemy geometrię i tekst, bez semantyki (pkt 2).
 // Uproszczenia: krzywe w <path> przybliżamy odcinkami do punktów końcowych; transform/gradient pomijamy.
 
-import type { UniDoc, UniNode } from "../model";
+import type { UniDoc, UniNode } from "@whiteboard/core";
 
 function prop(el: Element, name: string): string | undefined {
   const attr = el.getAttribute(name);

@@ -1,11 +1,12 @@
 import { useState } from "react";
 
-import { api } from "./api";
+import { api } from "@whiteboard/api-client";
+import { type UniDoc } from "@whiteboard/core";
+import { convertExcalidraw, convertSvg, exportDev } from "@whiteboard/importers";
+
 import { BoardCanvas } from "./BoardCanvas";
-import { convertExcalidraw } from "./convert/excalidraw";
-import { convertFile } from "./convert";
-import { convertSvg } from "./convert/svg";
-import { type UniDoc } from "./model";
+import { convertFilePreferServer } from "./convertService";
+import { downloadText, safeFilename } from "./download";
 
 const SAMPLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200">
   <rect x="20" y="20" width="120" height="70" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
@@ -95,11 +96,13 @@ export function ConvertPage() {
   const [doc, setDoc] = useState<UniDoc | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [title, setTitle] = useState("Konwersja testowa");
 
   function apply(converted: UniDoc, label: string) {
     setDoc(converted);
     setError(null);
+    setWarnings([]);
     setInfo(`Skonwertowano ${label}: ${converted.nodes.length} obiektów.`);
   }
 
@@ -125,11 +128,16 @@ export function ConvertPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const text = await file.text();
-      apply(convertFile(file.name, text), file.name);
-    } catch (e) {
+      const { doc: converted, warnings: w, via } = await convertFilePreferServer(file);
+      setDoc(converted);
+      setError(null);
+      setWarnings(w);
+      const src = via === "server" ? "serwer" : "lokalnie (fallback)";
+      setInfo(`Skonwertowano ${file.name} [${src}]: ${converted.nodes.length} obiektów.`);
+    } catch (err) {
       setDoc(null);
-      setError(`Nie udało się skonwertować ${file.name}: ${(e as Error).message}`);
+      setWarnings([]);
+      setError(`Nie udało się skonwertować ${file.name}: ${(err as Error).message}`);
     }
   }
 
@@ -155,10 +163,10 @@ export function ConvertPage() {
           <button onClick={loadSampleExcalidraw}>Przykład .excalidraw</button>
           <button onClick={loadSampleSvg}>Przykład .svg</button>
           <label className="ghost" style={{ padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
-            Wgraj plik (.excalidraw / .svg)
+            Wgraj plik (.excalidraw / .svg / .devbrd)
             <input
               type="file"
-              accept=".excalidraw,.json,.svg,application/json,image/svg+xml"
+              accept=".excalidraw,.json,.svg,.devbrd,application/json,image/svg+xml"
               style={{ display: "none" }}
               onChange={onFile}
             />
@@ -166,6 +174,13 @@ export function ConvertPage() {
         </div>
         {info && <div className="sub" style={{ marginTop: 8 }}>{info}</div>}
         {error && <div className="error">{error}</div>}
+        {warnings.length > 0 && (
+          <ul className="sub" style={{ marginTop: 8, paddingLeft: 18 }}>
+            {warnings.map((w, i) => (
+              <li key={i} style={{ color: "#e8590c" }}>{w}</li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {doc && (
@@ -195,6 +210,15 @@ export function ConvertPage() {
             <div className="row" style={{ marginBottom: 8 }}>
               <input value={title} onChange={(e) => setTitle(e.target.value)} />
               <button onClick={saveAsBoard}>Zapisz jako tablicę (API)</button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  downloadText(safeFilename(title, "devbrd"), exportDev(doc, { title }));
+                  setInfo(`Wyeksportowano ${doc.nodes.length} obiektów do .devbrd.`);
+                }}
+              >
+                Eksport .devbrd
+              </button>
             </div>
             <p className="sub">Uniwersalny model po konwersji:</p>
             <textarea readOnly value={JSON.stringify(doc, null, 2)} style={{ minHeight: 200 }} />

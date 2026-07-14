@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api, type User } from "./api";
+import { api, type User } from "@whiteboard/api-client";
 
 export function UsersPage({ isAdmin }: { isAdmin: boolean }) {
   const [users, setUsers] = useState<User[]>([]);

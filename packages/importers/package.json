@@ -1,0 +1,15 @@
+{
+  "name": "@whiteboard/importers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Importery formatów (excalidraw, svg, .devbrd) → uniwersalny model (idea.md pkt 3.2). Zależy tylko od core.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@whiteboard/core": "*"
+  }
+}

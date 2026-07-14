@@ -71,6 +71,39 @@ class BoardSummary(BaseModel):
     updated_at: datetime
 
 
+# ---------- Board versions ----------
+class VersionCreate(BaseModel):
+    note: str | None = Field(default=None, max_length=255)
+
+
+class BoardVersionSummary(BaseModel):
+    """Pozycja historii — bez treści dokumentu."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    board_id: uuid.UUID
+    title: str
+    note: str | None = None
+    created_by: uuid.UUID | None = None
+    created_at: datetime
+
+
+class BoardVersionRead(BoardVersionSummary):
+    document: dict[str, Any]
+
+
+# ---------- Convert ----------
+class ConvertResult(BaseModel):
+    """Wynik konwersji formatu źródłowego na uniwersalny model (podgląd, bez zapisu)."""
+
+    document: dict[str, Any]
+    source: str | None = None
+    fidelity: int | None = None  # poziom wierności (idea.md pkt 2)
+    warnings: list[str] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------- Permissions ----------
 class PermissionCreate(BaseModel):
     user_id: uuid.UUID

@@ -1,8 +1,3 @@
-# Środowisko deweloperskie on-premise (idea.md pkt 3.5).
-#
-#   docker compose up postgres      # tylko baza — API uruchamiasz lokalnie (uvicorn)
-#   docker compose up --build       # baza + API w kontenerze
-#
 services:
   postgres:
     image: postgres:16

@@ -83,7 +83,11 @@ Trzy kategorie pluginów, każdy w sandboxie (iframe/Web Worker + ograniczone, d
 
 ## 3.7 Natywny format zapisu i szyfrowanie
 
-Własny format kontenerowy (np. `.uwb`, w praktyce ZIP z JSON-em uniwersalnego modelu w środku, podobnie jak działa `.docx`) jako podstawowy sposób zapisu/eksportu projektu z platformy. Dwa niezależne poziomy szyfrowania do rozważenia:
+Własny format zapisu **`.devbrd`** jako podstawowy sposób zapisu/eksportu projektu z platformy. W pierwszej wersji to **zaawansowany kontener JSON** (nagłówek `format`, `version` schematu, `meta` oraz `document` z uniwersalnym modelem) — prosty, czytelny i wersjonowany. Docelowo może ewoluować do kontenera ZIP (JSON + załączniki/obrazy w środku, podobnie jak `.docx`), gdy pojawi się potrzeba trzymania zasobów binarnych obok modelu.
+
+> Stan implementacji: format `.devbrd` jest już zaimplementowany w kliencie web — eksport i import (round-trip), z kontrolą wersji schematu (import odrzuca pliki nowsze niż obsługiwana wersja). Docelowo logika przeniesie się do `packages/core` i `packages/crypto`.
+
+Dwa niezależne poziomy szyfrowania do rozważenia:
 
 - **Szyfrowanie pliku (at-rest)** — kontener szyfrowany AES z hasłem/kluczem przy zapisie na dysk lub nośnik wymienny (pendrive). Chroni plik, jeśli fizyczny nośnik zostanie zgubiony lub skradziony. Prosty do wdrożenia, niezależny od reszty systemu — dobry punkt startowy, szczególnie istotny dla wdrożeń on-premise z wrażliwymi danymi (np. CAD).
 - **Szyfrowanie end-to-end / zero-knowledge (dla wersji chmurowej)** — dane na serwerze szyfrowane tak, że operator platformy nie ma dostępu do treści, tylko posiadacze klucza (zespół/organizacja). Szyfrowanie/deszyfrowanie po stronie klienta. Kompromis: utrudnia lub wyklucza funkcje serwerowe zależne od treści (wyszukiwanie pełnotekstowe, generowanie miniatur na liście projektów) — wymaga świadomej decyzji projektowej, dla kogo ta funkcja jest (np. jako opcja dla klientów o podwyższonych wymaganiach bezpieczeństwa, nie tryb domyślny).
@@ -134,7 +138,7 @@ whiteboard-engine/
 │  │                        #   każdy importer: plik źródłowy → core, i odwrotnie (eksport)
 │  ├─ engine/               # silnik edycji/renderowania (pkt 3.3) na bazie tldraw/Excalidraw-core
 │  ├─ sync/                 # warstwa CRDT (pkt 3.4): mapowanie core ↔ Yjs, klient WebSocket
-│  ├─ crypto/               # szyfrowanie kontenera .uwb i E2E (pkt 3.7)
+│  ├─ crypto/               # szyfrowanie kontenera .devbrd i E2E (pkt 3.7)
 │  └─ ui/                   # KLOCKI UI: toolbar, panele, host canvasu, badge wierności, dialogi
 │     └─ profiles/          # gotowe kompozycje klocków: desktop / touch-board / compact (pkt 4A)
 ├─ apps/                    # konkretne aplikacje klienckie — SKŁADAJĄ klocki, nie zawierają logiki (pkt 4A)
@@ -274,7 +278,7 @@ Odróżnia platformę od czystego Excalidraw i wymaga osobnego profilu (`ui/prof
 
 Kwestie, które nie należą do jednej warstwy, ale rzutują na cały projekt i najtaniej jest je zaadresować od początku:
 
-- **Wersjonowanie schematu modelu.** Skoro `.uwb` (pkt 3.7) to natywny format zapisu, każdy dokument musi nieść pole `schemaVersion`, a `packages/core` — jawną ścieżkę migracji między wersjami. Bez tego pierwsze zapisane pliki staną się długiem technicznym w chwili pierwszej zmiany modelu. Migracje traktować jak migracje bazy danych: jednokierunkowe, testowane, nieodwracalne bez świadomej decyzji.
+- **Wersjonowanie schematu modelu.** Skoro `.devbrd` (pkt 3.7) to natywny format zapisu, każdy dokument musi nieść pole `version`/`schemaVersion`, a `packages/core` — jawną ścieżkę migracji między wersjami. Bez tego pierwsze zapisane pliki staną się długiem technicznym w chwili pierwszej zmiany modelu. Migracje traktować jak migracje bazy danych: jednokierunkowe, testowane, nieodwracalne bez świadomej decyzji.
 - **Mapowanie modelu na CRDT.** Yjs (pkt 3.4) jest wskazany, ale sposób odwzorowania uniwersalnego modelu na struktury `Y.Map`/`Y.Array` jest nietrywialny — zagnieżdżone grupy, warstwy i punkty zaczepienia krawędzi są typowym źródłem trudnych do odtworzenia konfliktów. To osobna decyzja projektowa (i osobny zestaw testów współbieżności), nie „efekt uboczny" wyboru biblioteki.
 - **Polityka utraty danych przy round-trip.** Trzeba jawnie zdefiniować, co się dzieje, gdy użytkownik **edytuje** import poziomu 2 (PDF wektorowy) lub opaque shape i eksportuje z powrotem do formatu źródłowego: co jest bezstratne, co degraduje się do „martwej" geometrii, a przy czym UI musi ostrzec, że zapis wsteczny gubi część danych. Zasada wierności z sekcji 2 działa w obie strony — także przy eksporcie.
 - **Testy golden-file jako element architektury, nie uwaga na marginesie.** Powtarzające się w dokumencie „wymaga testów na realnych plikach" należy podnieść do rangi procesu: katalog `fixtures/` z realnymi plikami per format + testy `import → model → eksport → porównanie` dla każdego importera. To jedyny wiarygodny sposób na pilnowanie zgodności z wariantami formatów (zwłaszcza IWB, różnie implementowanym przez producentów).
@@ -298,7 +302,7 @@ Kwestie, które nie należą do jednej warstwy, ale rzutują na cały projekt i 
 
 **Definicja MVP w kategoriach użytkownika (nie tylko technicznych).** Powyższe fazowanie opisuje *co* budujemy, ale pierwsze wydanie warto zdefiniować przez konkretny scenariusz użytkownika, żeby nie utknąć w budowaniu rdzenia bez działającego produktu. Propozycja pierwszego wydania:
 
-> *„Użytkownik otwiera plik `.excalidraw`, `.drawio`, SVG lub `.iwb`, edytuje go w przeglądarce razem z drugą osobą w czasie rzeczywistym, zapisuje jako `.uwb` i eksportuje z powrotem — a całość może stać na własnym serwerze przez `docker-compose`."*
+> *„Użytkownik otwiera plik `.excalidraw`, `.drawio`, SVG lub `.iwb`, edytuje go w przeglądarce razem z drugą osobą w czasie rzeczywistym, zapisuje jako `.devbrd` i eksportuje z powrotem — a całość może stać na własnym serwerze przez `docker-compose`."*
 
 Wszystko poza tym zdaniem (CAD, mobile, integracje API, szyfrowanie E2E, tablice fizyczne) jest świadomie *poza* pierwszym wydaniem.
 
@@ -364,7 +368,7 @@ Miro, Mural, FigJam (współdzieli silnik plikowy `.fig` z Figma, ale w praktyce
 - Weryfikacja realnych plików `.iwb` z konkretnych urządzeń (Samsung i inne) pod kątem zgodności ze specyfikacją 1EdTech.
 - Zakres MVP — które formaty i platformy wchodzą w pierwsze wydanie (patrz propozycja w pkt 6).
 - Sposób mapowania uniwersalnego modelu na struktury CRDT (Yjs) — zwłaszcza grup, warstw i punktów zaczepienia krawędzi (pkt 5.1).
-- Strategia wersjonowania i migracji schematu modelu / formatu `.uwb` od pierwszego wydania (pkt 5.1).
+- Strategia wersjonowania i migracji schematu modelu / formatu `.devbrd` od pierwszego wydania (pkt 5.1).
 - Polityka utraty danych przy eksporcie wstecznym (round-trip) dla importów poziomu 2 i opaque shapes (pkt 5.1).
 - Ryzyko prawne reverse-engineeringu zamkniętych formatów producentów (EULA/DMCA) — do oceny per format (pkt 5.1).
 - Zakres wymagań dostępności (a11y) i języków interfejsu (i18n) dla pierwszych wdrożeń, zwłaszcza edukacyjnych/publicznych (pkt 5.1).

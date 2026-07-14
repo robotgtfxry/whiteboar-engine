@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api, hasToken, type User } from "./api";
+import { api, hasToken, type User } from "@whiteboard/api-client";
 import { BoardsPage } from "./BoardsPage";
 import { BoardView } from "./BoardView";
 import { ConvertPage } from "./ConvertPage";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api, type User } from "./api";
+import { api, type User } from "@whiteboard/api-client";
 
 export function LoginPage({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState("admin@local");

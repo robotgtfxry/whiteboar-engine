@@ -1,7 +1,7 @@
 // Importer .excalidraw → uniwersalny model. Odpowiednik przyszłego packages/importers/excalidraw
 // (idea.md pkt 3.2). Poziom wierności 1 (natywny, otwarty JSON — pkt 2).
 
-import type { NodeType, UniDoc, UniNode } from "../model";
+import type { NodeType, UniDoc, UniNode } from "@whiteboard/core";
 
 interface ExcalidrawElement {
   id?: string;

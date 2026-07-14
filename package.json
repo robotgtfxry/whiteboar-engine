@@ -1,0 +1,10 @@
+{
+  "name": "whiteboard-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Uniwersalna platforma tablic interaktywnych — monorepo (idea.md pkt 3.10).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}

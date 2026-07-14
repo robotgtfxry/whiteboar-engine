@@ -1,10 +1,12 @@
 import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type Board } from "./api";
+import { api, type Board } from "@whiteboard/api-client";
+import { bounds, isUniDoc, translateNodes, type UniDoc } from "@whiteboard/core";
+import { exportDev } from "@whiteboard/importers";
+
 import { BoardCanvas, type ViewBox } from "./BoardCanvas";
-import { convertFile } from "./convert";
-import { bounds, translateNodes } from "./geometry";
-import { isUniDoc, type UniDoc } from "./model";
+import { convertFilePreferServer } from "./convertService";
+import { downloadText, safeFilename } from "./download";
 
 const EMPTY: UniDoc = { version: 1, nodes: [] };
 
@@ -92,10 +94,11 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
     let next = doc;
     let total = 0;
     let step = 0;
+    let warned = 0;
     for (const file of Array.from(files)) {
       try {
-        const text = await file.text();
-        const inc = convertFile(file.name, text);
+        const { doc: inc, warnings } = await convertFilePreferServer(file);
+        warned += warnings.length;
         const ib = bounds(inc.nodes);
         const cx = (ib.minX + ib.maxX) / 2;
         const cy = (ib.minY + ib.maxY) / 2;
@@ -117,7 +120,8 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
     if (total > 0) {
       setDoc(next);
       setDirty(true);
-      setInfo(`Zaimportowano ${total} obiektów w miejscu upuszczenia.`);
+      const warnSuffix = warned > 0 ? ` · ${warned} ostrzeżeń konwersji` : "";
+      setInfo(`Zaimportowano ${total} obiektów w miejscu upuszczenia${warnSuffix}.`);
     }
   }
 
@@ -243,6 +247,12 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
     );
   }
 
+  function exportBoard() {
+    const text = exportDev(doc, { id: boardId, title: board?.title });
+    downloadText(safeFilename(board?.title ?? "tablica", "devbrd"), text);
+    setInfo(`Wyeksportowano ${doc.nodes.length} obiektów do formatu .devbrd.`);
+  }
+
   const unknownCount = doc.nodes.filter((n) => n.type === "unknown").length;
 
   // Brak dostępu / nie istnieje — czytelny komunikat zamiast pustej tablicy.
@@ -300,6 +310,9 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
             Usuń obiekt
           </button>
           <button onClick={() => fileInput.current?.click()}>Wgraj plik</button>
+          <button className="ghost" onClick={exportBoard} disabled={doc.nodes.length === 0}>
+            Eksport .devbrd
+          </button>
           <button onClick={save} disabled={!dirty}>
             Zapisz
           </button>
@@ -340,7 +353,7 @@ export function BoardView({ boardId, onClose }: { boardId: string; onClose: () =
         ref={fileInput}
         type="file"
         multiple
-        accept=".excalidraw,.json,.svg,application/json,image/svg+xml"
+        accept=".excalidraw,.json,.svg,.devbrd,application/json,image/svg+xml"
         style={{ display: "none" }}
         onChange={(e) => {
           const r = areaRef.current?.getBoundingClientRect();

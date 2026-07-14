@@ -1,7 +1,7 @@
 import { type PointerEvent as ReactPointerEvent } from "react";
 
-import { bounds } from "./geometry";
-import { type UniDoc, type UniNode } from "./model";
+import { bounds } from "@whiteboard/core";
+import { type UniDoc, type UniNode } from "@whiteboard/core";
 
 // Prosty renderer uniwersalnego modelu do SVG. Docelowo zastąpi go silnik z packages/engine
 // (tldraw/Excalidraw-core, idea.md pkt 3.3). Obsługuje kontrolowany viewBox (pan/zoom) oraz
@@ -22,6 +22,34 @@ interface Props {
   onNodePointerDown?: (id: string, e: ReactPointerEvent) => void;
 }
 
+// Etykieta scalona w kształt (Excalidraw containerId → text kontenera). Wyśrodkowana,
+// wieloliniowa; renderowana nad kształtem. Dane pochodzą z importera (idea.md pkt 3.1).
+function ContainerLabel({ n }: { n: UniNode }) {
+  if (!n.text) return null;
+  const fontSize = n.fontSize ?? 16;
+  const lines = n.text.split("\n");
+  const cx = n.x + n.width / 2;
+  const cy = n.y + n.height / 2;
+  const anchor = n.textAlign === "left" ? "start" : n.textAlign === "right" ? "end" : "middle";
+  return (
+    <text
+      x={cx}
+      y={cy - ((lines.length - 1) * fontSize) / 2}
+      fontSize={fontSize}
+      fill={n.textColor ?? "#1e1e1e"}
+      textAnchor={anchor}
+      dominantBaseline="central"
+      style={{ pointerEvents: "none", userSelect: "none" }}
+    >
+      {lines.map((line, i) => (
+        <tspan key={i} x={cx} dy={i === 0 ? 0 : fontSize}>
+          {line}
+        </tspan>
+      ))}
+    </text>
+  );
+}
+
 function Shape({ n }: { n: UniNode }) {
   const stroke = n.stroke ?? "#1e1e1e";
   const fill = n.fill ?? "none";
@@ -30,30 +58,41 @@ function Shape({ n }: { n: UniNode }) {
 
   switch (n.type) {
     case "rect":
-      return <rect x={n.x} y={n.y} width={n.width} height={n.height} rx={4} {...common} />;
+      return (
+        <>
+          <rect x={n.x} y={n.y} width={n.width} height={n.height} rx={4} {...common} />
+          <ContainerLabel n={n} />
+        </>
+      );
     case "ellipse":
       return (
-        <ellipse
-          cx={n.x + n.width / 2}
-          cy={n.y + n.height / 2}
-          rx={Math.abs(n.width / 2)}
-          ry={Math.abs(n.height / 2)}
-          {...common}
-        />
+        <>
+          <ellipse
+            cx={n.x + n.width / 2}
+            cy={n.y + n.height / 2}
+            rx={Math.abs(n.width / 2)}
+            ry={Math.abs(n.height / 2)}
+            {...common}
+          />
+          <ContainerLabel n={n} />
+        </>
       );
     case "diamond":
       return (
-        <polygon
-          points={[
-            [n.x + n.width / 2, n.y],
-            [n.x + n.width, n.y + n.height / 2],
-            [n.x + n.width / 2, n.y + n.height],
-            [n.x, n.y + n.height / 2],
-          ]
-            .map((p) => p.join(","))
-            .join(" ")}
-          {...common}
-        />
+        <>
+          <polygon
+            points={[
+              [n.x + n.width / 2, n.y],
+              [n.x + n.width, n.y + n.height / 2],
+              [n.x + n.width / 2, n.y + n.height],
+              [n.x, n.y + n.height / 2],
+            ]
+              .map((p) => p.join(","))
+              .join(" ")}
+            {...common}
+          />
+          <ContainerLabel n={n} />
+        </>
       );
     case "text":
       return (
@@ -97,15 +136,22 @@ function Shape({ n }: { n: UniNode }) {
 
 export function BoardCanvas({ doc, height = 420, viewBox, selectedId, onNodePointerDown }: Props) {
   let vb: string;
+  let vbW: number; // szerokość viewBoxa (jednostki) — do skalowania obwódki zaznaczenia z zoomem
   if (viewBox) {
     vb = `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`;
+    vbW = viewBox.w;
   } else {
     const b = bounds(doc.nodes);
     const pad = 20;
-    vb = `${b.minX - pad} ${b.minY - pad} ${b.maxX - b.minX + pad * 2} ${b.maxY - b.minY + pad * 2}`;
+    vbW = b.maxX - b.minX + pad * 2;
+    vb = `${b.minX - pad} ${b.minY - pad} ${vbW} ${b.maxY - b.minY + pad * 2}`;
   }
 
   const interactive = !!onNodePointerDown;
+  // Obwódka zaznaczenia ma pozostać stała na ekranie niezależnie od zoomu: odstęp skaluje się
+  // z zoomem (∝ vbW), a grubość i kreski utrzymuje non-scaling-stroke. Bez tego przy
+  // przybliżeniu obwódka robiła się gigantyczna (grubość/odstęp w jednostkach treści).
+  const selPad = vbW * 0.006;
 
   return (
     <svg
@@ -141,14 +187,15 @@ export function BoardCanvas({ doc, height = 420, viewBox, selectedId, onNodePoin
             <Shape n={n} />
             {selected && (
               <rect
-                x={nb.minX - 4}
-                y={nb.minY - 4}
-                width={nb.maxX - nb.minX + 8}
-                height={nb.maxY - nb.minY + 8}
+                x={nb.minX - selPad}
+                y={nb.minY - selPad}
+                width={nb.maxX - nb.minX + selPad * 2}
+                height={nb.maxY - nb.minY + selPad * 2}
                 fill="none"
                 stroke="#4f8cff"
                 strokeWidth={1.5}
                 strokeDasharray="5 3"
+                vectorEffect="non-scaling-stroke"
                 pointerEvents="none"
               />
             )}

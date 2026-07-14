@@ -20,8 +20,10 @@ export interface UniNode {
   height: number;
   angle?: number;
   points?: [number, number][]; // dla line/arrow/draw — względem (x, y)
-  text?: string;
+  text?: string; // treść tekstu lub etykieta scalona w kształt (idea.md pkt 3.1)
   fontSize?: number;
+  textAlign?: string; // "left" | "center" | "right" — wyrównanie etykiety/tekstu
+  textColor?: string; // kolor etykiety scalonej w kształt (osobny od `stroke` obrysu)
   stroke?: string;
   fill?: string;
   strokeWidth?: number;

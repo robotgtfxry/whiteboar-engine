@@ -1,4 +1,6 @@
-// Cienki klient REST — odpowiednik przyszłego packages/api-client (idea.md pkt 4A).
+// Cienki klient REST — packages/api-client: jedyna droga klientów do backendu (idea.md pkt 4A).
+
+import { type UniDoc } from "@whiteboard/core";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -47,6 +49,29 @@ export interface Permission {
   created_at: string;
 }
 
+export interface BoardVersionSummary {
+  id: UUID;
+  board_id: UUID;
+  title: string;
+  note: string | null;
+  created_by: UUID | null;
+  created_at: string;
+}
+
+export interface BoardVersion extends BoardVersionSummary {
+  document: Record<string, unknown>;
+}
+
+// Wynik konwersji z backendu (POST /convert). Bogatszy niż importer kliencki:
+// niesie ostrzeżenia o utracie/degradacji danych oraz statystyki (idea.md pkt 2/3.2).
+export interface ConvertResult {
+  document: UniDoc;
+  source?: string;
+  fidelity?: number;
+  warnings: string[];
+  stats: Record<string, unknown>;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -92,6 +117,26 @@ export const api = {
   me: () => req<User>("/auth/me"),
   logout: () => setToken(null),
 
+  // Konwersja pliku źródłowego na serwerze (kanoniczny importer, idea.md pkt 3.2/3.5).
+  // multipart/form-data — NIE ustawiamy Content-Type ręcznie (przeglądarka doda boundary).
+  async convert(file: File): Promise<ConvertResult> {
+    const form = new FormData();
+    form.append("file", file);
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${BASE}/convert`, { method: "POST", body: form, headers });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* brak ciała JSON */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return (await res.json()) as ConvertResult;
+  },
+
   // Users
   listUsers: () => req<User[]>("/users"),
   createUser: (body: { email: string; display_name: string; password: string; is_admin?: boolean }) =>
@@ -99,13 +144,41 @@ export const api = {
   deleteUser: (id: UUID) => req<void>(`/users/${id}`, { method: "DELETE" }),
 
   // Boards
-  listBoards: () => req<BoardSummary[]>("/boards"),
+  listBoards: (archived = false) => req<BoardSummary[]>(`/boards?archived=${archived}`),
   getBoard: (id: UUID) => req<Board>(`/boards/${id}`),
   createBoard: (body: { title: string; document?: Record<string, unknown> }) =>
     req<Board>("/boards", { method: "POST", body: JSON.stringify(body) }),
   updateBoard: (id: UUID, body: { title?: string; document?: Record<string, unknown> }) =>
     req<Board>(`/boards/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteBoard: (id: UUID) => req<void>(`/boards/${id}`, { method: "DELETE" }),
+
+  // Import przenośnego kontenera .devbrd → nowa tablica (round-trip między urządzeniami/instancjami).
+  async importDevbrd(file: File): Promise<Board> {
+    const text = await file.text();
+    let container: unknown;
+    try {
+      container = JSON.parse(text);
+    } catch {
+      throw new ApiError(400, "Plik .devbrd nie jest poprawnym JSON-em.");
+    }
+    return req<Board>("/boards/import", { method: "POST", body: JSON.stringify(container) });
+  },
+
+  // Archiwizacja
+  archiveBoard: (id: UUID) => req<void>(`/boards/${id}/archive`, { method: "POST" }),
+  unarchiveBoard: (id: UUID) => req<void>(`/boards/${id}/unarchive`, { method: "POST" }),
+
+  // Historia wersji
+  listVersions: (id: UUID) => req<BoardVersionSummary[]>(`/boards/${id}/versions`),
+  getVersion: (id: UUID, versionId: UUID) =>
+    req<BoardVersion>(`/boards/${id}/versions/${versionId}`),
+  saveVersion: (id: UUID, note?: string) =>
+    req<BoardVersion>(`/boards/${id}/versions`, {
+      method: "POST",
+      body: JSON.stringify({ note: note ?? null }),
+    }),
+  restoreVersion: (id: UUID, versionId: UUID) =>
+    req<Board>(`/boards/${id}/versions/${versionId}/restore`, { method: "POST" }),
 
   // Permissions
   listPermissions: (boardId: UUID) => req<Permission[]>(`/boards/${boardId}/permissions`),

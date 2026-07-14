@@ -5,21 +5,25 @@ import {
   type AccessLevel,
   type Board,
   type BoardSummary,
+  type BoardVersionSummary,
   type Permission,
   type User,
-} from "./api";
+} from "@whiteboard/api-client";
+import { isUniDoc } from "@whiteboard/core";
+
 import { BoardCanvas } from "./BoardCanvas";
-import { isUniDoc } from "./model";
 
 export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [selected, setSelected] = useState<Board | null>(null);
   const [newTitle, setNewTitle] = useState("");
+  const [archived, setArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   async function loadBoards() {
     try {
-      setBoards(await api.listBoards());
+      setBoards(await api.listBoards(archived));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -28,7 +32,33 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
 
   useEffect(() => {
     loadBoards();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archived]);
+
+  async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const b = await api.importDevbrd(file);
+      setInfo(`Zaimportowano „${b.title}” z ${file.name}.`);
+      await loadBoards();
+      await open(b.id);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function toggleArchive(id: string) {
+    try {
+      if (archived) await api.unarchiveBoard(id);
+      else await api.archiveBoard(id);
+      if (selected?.id === id) setSelected(null);
+      await loadBoards();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   async function open(id: string) {
     try {
@@ -72,12 +102,27 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
           <button onClick={create} disabled={!newTitle}>
             Utwórz tablicę
           </button>
+          <label className="ghost" style={{ padding: "8px 14px", borderRadius: 6, cursor: "pointer" }}>
+            Importuj .devbrd
+            <input
+              type="file"
+              accept=".devbrd,application/json"
+              style={{ display: "none" }}
+              onChange={onImport}
+            />
+          </label>
+          <button className="ghost" onClick={() => setArchived((a) => !a)}>
+            {archived ? "← Aktywne tablice" : "Archiwum"}
+          </button>
         </div>
+        {info && <div className="sub" style={{ marginTop: 8 }}>{info}</div>}
         {error && <div className="error">{error}</div>}
       </div>
 
       <div className="panel">
-        {boards.length === 0 && <div className="sub">Brak tablic.</div>}
+        {boards.length === 0 && (
+          <div className="sub">{archived ? "Archiwum jest puste." : "Brak tablic."}</div>
+        )}
         {boards.map((b) => (
           <div
             key={b.id}
@@ -96,6 +141,15 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
                 }}
               >
                 Otwórz
+              </button>
+              <button
+                className="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleArchive(b.id);
+                }}
+              >
+                {archived ? "Przywróć" : "Archiwizuj"}
               </button>
               <button
                 className="danger"
@@ -130,7 +184,7 @@ function BoardDetail({ board, onChange }: { board: Board; onChange: (b: Board) =
 
   useEffect(() => {
     setDocText(JSON.stringify(board.document, null, 2));
-  }, [board.id]);
+  }, [board.id, board.updated_at]);
 
   async function saveDocument() {
     let parsed: Record<string, unknown>;
@@ -172,7 +226,86 @@ function BoardDetail({ board, onChange }: { board: Board; onChange: (b: Board) =
         {error && <span className="error">{error}</span>}
       </div>
 
+      <VersionHistory board={board} onRestore={onChange} />
       <PermissionsPanel boardId={board.id} />
+    </div>
+  );
+}
+
+function VersionHistory({ board, onRestore }: { board: Board; onRestore: (b: Board) => void }) {
+  const [versions, setVersions] = useState<BoardVersionSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setVersions(await api.listVersions(board.id));
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.id, board.updated_at]);
+
+  async function saveVersion() {
+    try {
+      await api.saveVersion(board.id);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function restore(versionId: string) {
+    try {
+      onRestore(await api.restoreVersion(board.id, versionId));
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <strong>Historia wersji</strong>
+        <button className="ghost" onClick={saveVersion}>
+          Zapisz wersję
+        </button>
+      </div>
+      {error && <div className="error">{error}</div>}
+      <table style={{ marginTop: 12 }}>
+        <thead>
+          <tr>
+            <th>Kiedy</th>
+            <th>Notatka</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {versions.map((v) => (
+            <tr key={v.id}>
+              <td className="mono">{new Date(v.created_at).toLocaleString()}</td>
+              <td>{v.note ?? "—"}</td>
+              <td>
+                <button className="ghost" onClick={() => restore(v.id)}>
+                  Przywróć
+                </button>
+              </td>
+            </tr>
+          ))}
+          {versions.length === 0 && (
+            <tr>
+              <td colSpan={3} className="sub">
+                Brak wersji — pojawią się po zapisach tablicy.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
