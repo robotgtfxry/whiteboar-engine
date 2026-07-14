@@ -6,7 +6,9 @@ import {
   type Board,
   type BoardSummary,
   type BoardVersionSummary,
+  deviceName,
   type Permission,
+  setDeviceName,
   type User,
 } from "@whiteboard/api-client";
 import { isUniDoc } from "@whiteboard/core";
@@ -17,13 +19,12 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [selected, setSelected] = useState<Board | null>(null);
   const [newTitle, setNewTitle] = useState("");
-  const [archived, setArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
   async function loadBoards() {
     try {
-      setBoards(await api.listBoards(archived));
+      setBoards(await api.listBoards());
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -32,8 +33,7 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
 
   useEffect(() => {
     loadBoards();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [archived]);
+  }, []);
 
   async function onImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -46,17 +46,6 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
       await open(b.id);
     } catch (err) {
       setError((err as Error).message);
-    }
-  }
-
-  async function toggleArchive(id: string) {
-    try {
-      if (archived) await api.unarchiveBoard(id);
-      else await api.archiveBoard(id);
-      if (selected?.id === id) setSelected(null);
-      await loadBoards();
-    } catch (e) {
-      setError((e as Error).message);
     }
   }
 
@@ -111,18 +100,13 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
               onChange={onImport}
             />
           </label>
-          <button className="ghost" onClick={() => setArchived((a) => !a)}>
-            {archived ? "← Aktywne tablice" : "Archiwum"}
-          </button>
         </div>
         {info && <div className="sub" style={{ marginTop: 8 }}>{info}</div>}
         {error && <div className="error">{error}</div>}
       </div>
 
       <div className="panel">
-        {boards.length === 0 && (
-          <div className="sub">{archived ? "Archiwum jest puste." : "Brak tablic."}</div>
-        )}
+        {boards.length === 0 && <div className="sub">Brak tablic.</div>}
         {boards.map((b) => (
           <div
             key={b.id}
@@ -141,15 +125,6 @@ export function BoardsPage({ onOpen }: { onOpen: (id: string) => void }) {
                 }}
               >
                 Otwórz
-              </button>
-              <button
-                className="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleArchive(b.id);
-                }}
-              >
-                {archived ? "Przywróć" : "Archiwizuj"}
               </button>
               <button
                 className="danger"
@@ -234,6 +209,7 @@ function BoardDetail({ board, onChange }: { board: Board; onChange: (b: Board) =
 
 function VersionHistory({ board, onRestore }: { board: Board; onRestore: (b: Board) => void }) {
   const [versions, setVersions] = useState<BoardVersionSummary[]>([]);
+  const [dev, setDev] = useState(deviceName());
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -272,15 +248,35 @@ function VersionHistory({ board, onRestore }: { board: Board; onRestore: (b: Boa
     <div style={{ marginTop: 20, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
       <div className="row" style={{ justifyContent: "space-between" }}>
         <strong>Historia wersji</strong>
-        <button className="ghost" onClick={saveVersion}>
-          Zapisz wersję
-        </button>
+        <div className="row">
+          <span className="sub" style={{ margin: 0 }}>
+            to urządzenie: <span className="mono">{dev}</span>
+          </span>
+          <button
+            className="ghost"
+            onClick={() => {
+              const n = prompt("Nazwa tego urządzenia (widoczna w historii):", dev);
+              if (n && n.trim()) {
+                setDeviceName(n);
+                setDev(n.trim());
+              }
+            }}
+          >
+            Zmień
+          </button>
+          <button className="ghost" onClick={saveVersion}>
+            Zapisz wersję
+          </button>
+        </div>
       </div>
       {error && <div className="error">{error}</div>}
       <table style={{ marginTop: 12 }}>
         <thead>
           <tr>
             <th>Kiedy</th>
+            <th>Kto</th>
+            <th>Urządzenie</th>
+            <th>Obiekty</th>
             <th>Notatka</th>
             <th></th>
           </tr>
@@ -289,6 +285,9 @@ function VersionHistory({ board, onRestore }: { board: Board; onRestore: (b: Boa
           {versions.map((v) => (
             <tr key={v.id}>
               <td className="mono">{new Date(v.created_at).toLocaleString()}</td>
+              <td>{v.created_by_name ?? "—"}</td>
+              <td className="mono">{v.device ?? "—"}</td>
+              <td>{v.node_count}</td>
               <td>{v.note ?? "—"}</td>
               <td>
                 <button className="ghost" onClick={() => restore(v.id)}>
@@ -299,7 +298,7 @@ function VersionHistory({ board, onRestore }: { board: Board; onRestore: (b: Boa
           ))}
           {versions.length === 0 && (
             <tr>
-              <td colSpan={3} className="sub">
+              <td colSpan={6} className="sub">
                 Brak wersji — pojawią się po zapisach tablicy.
               </td>
             </tr>

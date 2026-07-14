@@ -4,7 +4,7 @@ import re
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -13,14 +13,7 @@ from ..access import require_access
 from ..convert import ConvertError, convert_file
 from ..deps import get_current_user, get_db
 from ..devformat import build_dev, parse_dev
-from ..models import (
-    AccessLevel,
-    Board,
-    BoardArchive,
-    BoardPermission,
-    BoardVersion,
-    User,
-)
+from ..models import AccessLevel, Board, BoardPermission, BoardVersion, User
 from ..schemas import (
     BoardCreate,
     BoardRead,
@@ -43,13 +36,20 @@ def _get_or_404(db: Session, board_id: uuid.UUID) -> Board:
     return board
 
 
-def _snapshot(db: Session, board: Board, user: User, note: str | None = None) -> BoardVersion:
+def _snapshot(
+    db: Session,
+    board: Board,
+    user: User,
+    note: str | None = None,
+    device: str | None = None,
+) -> BoardVersion:
     """Zapisuje bieżący stan tablicy jako wersję w historii (bez commitu)."""
     version = BoardVersion(
         board_id=board.id,
         title=board.title,
         document=board.document,
         note=note,
+        device=device,
         created_by=user.id,
     )
     db.add(version)
@@ -57,26 +57,18 @@ def _snapshot(db: Session, board: Board, user: User, note: str | None = None) ->
 
 
 @router.get("", response_model=list[BoardSummary])
-def list_boards(
-    archived: bool = False,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Admin widzi wszystkie tablice; zwykły użytkownik — swoje oraz udostępnione mu.
-
-    Domyślnie pomija zarchiwizowane; `?archived=true` zwraca wyłącznie archiwum.
-    """
-    stmt = select(Board)
+def list_boards(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Admin widzi wszystkie tablice; zwykły użytkownik — swoje oraz udostępnione mu."""
+    stmt = select(Board).order_by(Board.updated_at.desc())
     if not user.is_admin:
         stmt = (
             select(Board)
             .outerjoin(BoardPermission, BoardPermission.board_id == Board.id)
             .where(or_(Board.owner_id == user.id, BoardPermission.user_id == user.id))
             .distinct()
+            .order_by(Board.updated_at.desc())
         )
-    archived_ids = select(BoardArchive.board_id)
-    stmt = stmt.where(Board.id.in_(archived_ids) if archived else Board.id.not_in(archived_ids))
-    return db.scalars(stmt.order_by(Board.updated_at.desc())).all()
+    return db.scalars(stmt).all()
 
 
 @router.post("", response_model=BoardRead, status_code=201)
@@ -170,6 +162,7 @@ def export_dev(
 def update_board(
     board_id: uuid.UUID,
     payload: BoardUpdate,
+    x_device: str | None = Header(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -177,7 +170,7 @@ def update_board(
     require_access(db, board, user, AccessLevel.edit)
     data = payload.model_dump(exclude_unset=True)
     if data:
-        _snapshot(db, board, user)  # zachowaj poprzedni stan w historii przed nadpisaniem
+        _snapshot(db, board, user, device=x_device)  # poprzedni stan → historia (kto/urządzenie)
     for field, value in data.items():
         setattr(board, field, value)
     db.commit()
@@ -197,52 +190,39 @@ def delete_board(
     db.commit()
 
 
-# ---------- Archiwizacja ----------
-@router.post("/{board_id}/archive", status_code=204)
-def archive_board(
-    board_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Archiwizuje tablicę (ukrywa z domyślnej listy, bez usuwania). Wymaga owner."""
-    board = _get_or_404(db, board_id)
-    require_access(db, board, user, AccessLevel.owner)
-    if db.get(BoardArchive, board_id) is None:
-        db.add(BoardArchive(board_id=board_id, archived_by=user.id))
-        db.commit()
+# ---------- Historia wersji (audyt: kto / urządzenie / co / kiedy) ----------
+def _version_summary(version: BoardVersion, author_name: str | None) -> dict[str, Any]:
+    doc = version.document if isinstance(version.document, dict) else {}
+    nodes = doc.get("nodes") if isinstance(doc, dict) else []
+    return {
+        "id": version.id,
+        "board_id": version.board_id,
+        "title": version.title,
+        "note": version.note,
+        "device": version.device,
+        "created_by": version.created_by,
+        "created_by_name": author_name,
+        "node_count": len(nodes) if isinstance(nodes, list) else 0,
+        "created_at": version.created_at,
+    }
 
 
-@router.post("/{board_id}/unarchive", status_code=204)
-def unarchive_board(
-    board_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Przywraca tablicę z archiwum. Wymaga owner."""
-    board = _get_or_404(db, board_id)
-    require_access(db, board, user, AccessLevel.owner)
-    row = db.get(BoardArchive, board_id)
-    if row is not None:
-        db.delete(row)
-        db.commit()
-
-
-# ---------- Historia wersji ----------
 @router.get("/{board_id}/versions", response_model=list[BoardVersionSummary])
 def list_versions(
     board_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Lista wersji tablicy (najnowsze pierwsze), bez treści dokumentu."""
+    """Historia wersji (najnowsze pierwsze) z autorem i urządzeniem, bez treści dokumentu."""
     board = _get_or_404(db, board_id)
     require_access(db, board, user, AccessLevel.read)
-    stmt = (
-        select(BoardVersion)
+    rows = db.execute(
+        select(BoardVersion, User.display_name)
+        .outerjoin(User, User.id == BoardVersion.created_by)
         .where(BoardVersion.board_id == board_id)
         .order_by(BoardVersion.created_at.desc())
-    )
-    return db.scalars(stmt).all()
+    ).all()
+    return [_version_summary(version, name) for version, name in rows]
 
 
 @router.get("/{board_id}/versions/{version_id}", response_model=BoardVersionRead)
@@ -252,35 +232,41 @@ def get_version(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Pełna wersja z treścią dokumentu (do podglądu/eksportu do .devbrd)."""
+    """Pełna wersja z treścią dokumentu (do podglądu / eksportu do .devbrd)."""
     board = _get_or_404(db, board_id)
     require_access(db, board, user, AccessLevel.read)
     version = db.get(BoardVersion, version_id)
     if version is None or version.board_id != board_id:
         raise HTTPException(status_code=404, detail="Wersja nie istnieje")
-    return version
+    author = db.get(User, version.created_by) if version.created_by else None
+    return {
+        **_version_summary(version, author.display_name if author else None),
+        "document": version.document,
+    }
 
 
 @router.post("/{board_id}/versions", response_model=BoardVersionRead, status_code=201)
 def save_version(
     board_id: uuid.UUID,
     payload: VersionCreate,
+    x_device: str | None = Header(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Ręczny snapshot bieżącego stanu tablicy (z opcjonalną notatką). Wymaga edit."""
+    """Ręczny snapshot bieżącego stanu (z notatką i urządzeniem). Wymaga edit."""
     board = _get_or_404(db, board_id)
     require_access(db, board, user, AccessLevel.edit)
-    version = _snapshot(db, board, user, payload.note or "ręczny zapis")
+    version = _snapshot(db, board, user, payload.note or "ręczny zapis", device=x_device)
     db.commit()
     db.refresh(version)
-    return version
+    return {**_version_summary(version, user.display_name), "document": version.document}
 
 
 @router.post("/{board_id}/versions/{version_id}/restore", response_model=BoardRead)
 def restore_version(
     board_id: uuid.UUID,
     version_id: uuid.UUID,
+    x_device: str | None = Header(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -290,7 +276,7 @@ def restore_version(
     version = db.get(BoardVersion, version_id)
     if version is None or version.board_id != board_id:
         raise HTTPException(status_code=404, detail="Wersja nie istnieje")
-    _snapshot(db, board, user, "przed przywróceniem wersji")
+    _snapshot(db, board, user, "przed przywróceniem wersji", device=x_device)
     board.title = version.title
     board.document = version.document
     db.commit()

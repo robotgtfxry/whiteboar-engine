@@ -18,6 +18,28 @@ export function hasToken() {
   return !!token;
 }
 
+// ---- nazwa urządzenia (localStorage) — audyt wersji: „na którym urządzeniu" ----
+const DEVICE_KEY = "wb_device";
+
+function device(): string {
+  let d = localStorage.getItem(DEVICE_KEY);
+  if (!d) {
+    const plat = (navigator.platform || navigator.userAgent || "web").replace(/[^\w]+/g, "").slice(0, 12);
+    d = `${plat || "web"}-${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(DEVICE_KEY, d);
+  }
+  return d;
+}
+
+export function deviceName(): string {
+  return device();
+}
+
+export function setDeviceName(name: string) {
+  const trimmed = name.trim();
+  if (trimmed) localStorage.setItem(DEVICE_KEY, trimmed);
+}
+
 export type UUID = string;
 export type AccessLevel = "read" | "edit" | "owner";
 
@@ -54,7 +76,10 @@ export interface BoardVersionSummary {
   board_id: UUID;
   title: string;
   note: string | null;
+  device: string | null;
   created_by: UUID | null;
+  created_by_name: string | null;
+  node_count: number;
   created_at: string;
 }
 
@@ -144,12 +169,16 @@ export const api = {
   deleteUser: (id: UUID) => req<void>(`/users/${id}`, { method: "DELETE" }),
 
   // Boards
-  listBoards: (archived = false) => req<BoardSummary[]>(`/boards?archived=${archived}`),
+  listBoards: () => req<BoardSummary[]>("/boards"),
   getBoard: (id: UUID) => req<Board>(`/boards/${id}`),
   createBoard: (body: { title: string; document?: Record<string, unknown> }) =>
     req<Board>("/boards", { method: "POST", body: JSON.stringify(body) }),
   updateBoard: (id: UUID, body: { title?: string; document?: Record<string, unknown> }) =>
-    req<Board>(`/boards/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    req<Board>(`/boards/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: { "X-Device": device() },
+    }),
   deleteBoard: (id: UUID) => req<void>(`/boards/${id}`, { method: "DELETE" }),
 
   // Import przenośnego kontenera .devbrd → nowa tablica (round-trip między urządzeniami/instancjami).
@@ -164,11 +193,7 @@ export const api = {
     return req<Board>("/boards/import", { method: "POST", body: JSON.stringify(container) });
   },
 
-  // Archiwizacja
-  archiveBoard: (id: UUID) => req<void>(`/boards/${id}/archive`, { method: "POST" }),
-  unarchiveBoard: (id: UUID) => req<void>(`/boards/${id}/unarchive`, { method: "POST" }),
-
-  // Historia wersji
+  // Historia wersji (audyt: kto / urządzenie / co / kiedy)
   listVersions: (id: UUID) => req<BoardVersionSummary[]>(`/boards/${id}/versions`),
   getVersion: (id: UUID, versionId: UUID) =>
     req<BoardVersion>(`/boards/${id}/versions/${versionId}`),
@@ -176,9 +201,13 @@ export const api = {
     req<BoardVersion>(`/boards/${id}/versions`, {
       method: "POST",
       body: JSON.stringify({ note: note ?? null }),
+      headers: { "X-Device": device() },
     }),
   restoreVersion: (id: UUID, versionId: UUID) =>
-    req<Board>(`/boards/${id}/versions/${versionId}/restore`, { method: "POST" }),
+    req<Board>(`/boards/${id}/versions/${versionId}/restore`, {
+      method: "POST",
+      headers: { "X-Device": device() },
+    }),
 
   // Permissions
   listPermissions: (boardId: UUID) => req<Permission[]>(`/boards/${boardId}/permissions`),

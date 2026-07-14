@@ -77,7 +77,7 @@ class VersionCreate(BaseModel):
 
 
 class BoardVersionSummary(BaseModel):
-    """Pozycja historii — bez treści dokumentu."""
+    """Pozycja historii — audyt (kto/urządzenie/co/kiedy), bez treści dokumentu."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,7 +85,10 @@ class BoardVersionSummary(BaseModel):
     board_id: uuid.UUID
     title: str
     note: str | None = None
+    device: str | None = None
     created_by: uuid.UUID | None = None
+    created_by_name: str | None = None
+    node_count: int = 0
     created_at: datetime
 
 

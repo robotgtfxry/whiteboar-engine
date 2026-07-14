@@ -98,29 +98,10 @@ class BoardVersion(Base):
     title: Mapped[str] = mapped_column(String(255))
     document: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    device: Mapped[str | None] = mapped_column(String(255), nullable=True)  # z którego urządzenia
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class BoardArchive(Base):
-    """Stan archiwizacji tablicy (obecność wiersza = zarchiwizowana).
-
-    Osobna tabela zamiast kolumny w `boards` — dzięki temu `create_all` wprowadza funkcję
-    bez migracji istniejącej tabeli (idea.md pkt 3.11 — archiwizacja w konsoli admina).
-    """
-
-    __tablename__ = "board_archive"
-
-    board_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("boards.id", ondelete="CASCADE"), primary_key=True
-    )
-    archived_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    archived_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
