@@ -2,7 +2,12 @@
 
 import { type UniDoc } from "@whiteboard/core";
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Kolejność: runtime override z localStorage (desktop/Ustawienia) → env build-time → domyślny.
+// Wstecznie zgodne: apps/web nie ustawia `wb_api_url`, więc korzysta z VITE_API_URL jak dotąd.
+const BASE =
+  (typeof localStorage !== "undefined" ? localStorage.getItem("wb_api_url") : null) ??
+  import.meta.env.VITE_API_URL ??
+  "http://localhost:8000";
 
 // ---- token JWT (localStorage) ----
 const TOKEN_KEY = "wb_token";
